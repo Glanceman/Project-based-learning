@@ -35,6 +35,27 @@ Mat<float,4,4> viewport(int x, int y, int w, int h) {
 }
 
 
+Mat<float,4,4> lookat(Vec3f eye, Vec3f center, Vec3f up) {
+    Vec3f z = (eye-center).normalized();
+    Vec3f x = up.cross(z).normalized();
+    Vec3f y = z.cross(x).normalized();
+    Mat<float,4,4> res = Mat<float,4,4>::identity();
+    for (int i=0; i<3; i++) {
+        res[0][i] = x[i];
+        res[1][i] = y[i];
+        res[2][i] = z[i];
+        res[i][3] = -center[i];
+    }
+    /*
+    res= x1 x2 x3 -x1c
+         y1 y2 y3 -y1c
+         z1 z2 z3 -z1c
+         0  0  0   1
+    */
+    return res;
+}
+
+
 Mat<float,4,4> perspectiveProjectionMatrix(float top=1, float bot=-1, float left=-1, float right=1, float near=5, float far=100) {
     Mat<float,4,4> m = Mat<float,4,4>::zero();
     m[0][0] = 2*near/(right-left);
@@ -81,7 +102,8 @@ int main(int argc, char **argv)
 
     Mat<float,4,4> projectionMatrix = perspectiveProjectionMatrix(0.5, -0.5, -aspect/2, aspect/2, 0.35, 1000);
     //Mat<float,4,4> translationMatrix = Tool::translationMatrix(camera_pos);
-
+    Mat<float,4,4> modelMatrix =  lookat(camera_pos, camera_pos+Vec3f(0,0,1), Vec3f(0,1,0)); 
+    Mat<float,4,4> z = projectionMatrix*modelMatrix;
     // draw the wireframe of the model
     for (int i = 0; i < model->nfaces(); i++)
     {
@@ -97,7 +119,7 @@ int main(int argc, char **argv)
             // vec3 to vec4 
             Vec<float,4> v4 = {v.x, v.y, v.z, 1};
             // projection
-            Vec4f projVec= projectionMatrix*v4;
+            Vec4f projVec= z*v4;
             // convert to ndc 
             Vec3f projNDCVec3 = {projVec[0]/(projVec[3]+0.0001f), projVec[1]/(projVec[3]+0.0001f), projVec[2]/(projVec[3]+0.0001f)};
             //scale up to screen width and height

@@ -177,6 +177,37 @@ z_\text{ndc}\\
 \end{pmatrix}
 ```
 
+### To Camera Space
+change of basis: https://www.3blue1brown.com/lessons/change-of-basis
+```math
+M^{-1}=
+\frac{1}{det(\text{M})}
+\begin{pmatrix}
+x_1 & y_1   &z_1  &0\\
+x_2 & y_2   &z_2  &0\\
+x_3 & y_3   &z_3  &0\\
+0   & 0     &0    &1
+\end{pmatrix}^T
+```
+where det(M) == 1
+```math
+ModelView=
+\begin{pmatrix}
+x_1 & x_2   &x_3  &0\\
+y_1 & y_2   &y_3  &0\\
+z_1 & z_2   &z_3  &0\\
+0   & 0     &0    &1
+\end{pmatrix}
+\begin{pmatrix}
+1   & 0     &0  &-x_c\\
+0   & 1     &0  &-y_c\\
+0   & 0     &1  &-z_c\\
+0   & 0     &0    &1
+\end{pmatrix}
+```
+($x_c,y_c,z_c$) camera position
+
+
 ## Reference
 1. https://github.com/ssloy/tinyrenderer 
 2. https://www.songho.ca/opengl/gl_projectionmatrix.html

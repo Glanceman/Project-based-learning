@@ -191,7 +191,7 @@ x_3 & y_3   &z_3  &0\\
 ```
 where det(M) == 1
 ```math
-ModelView=
+ModelView= M^{-1}T^{-1}=
 \begin{pmatrix}
 x_1 & x_2   &x_3  &0\\
 y_1 & y_2   &y_3  &0\\

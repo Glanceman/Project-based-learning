@@ -34,17 +34,22 @@ Mat<float,4,4> viewport(int x, int y, int w, int h) {
     return m;
 }
 
-
+/// @brief lookat matrix
+/// @param eye camera postion
+/// @param center target center 
+/// @param up
+/// @return Mat<float,4,4>
 Mat<float,4,4> lookat(Vec3f eye, Vec3f center, Vec3f up) {
     Vec3f z = (eye-center).normalized();
     Vec3f x = up.cross(z).normalized();
     Vec3f y = z.cross(x).normalized();
-    Mat<float,4,4> res = Mat<float,4,4>::identity();
+    Mat<float,4,4> basisInverse = Mat<float,4,4>::identity();
+    Mat<float,4,4> translateInverse   = Mat<float,4,4>::identity();
     for (int i=0; i<3; i++) {
-        res[0][i] = x[i];
-        res[1][i] = y[i];
-        res[2][i] = z[i];
-        res[i][3] = -center[i];
+        basisInverse[0][i] = x[i];
+        basisInverse[1][i] = y[i];
+        basisInverse[2][i] = z[i];
+        translateInverse[i][3] = -eye[i];
     }
     /*
     res= x1 x2 x3 -x1c
@@ -52,7 +57,7 @@ Mat<float,4,4> lookat(Vec3f eye, Vec3f center, Vec3f up) {
          z1 z2 z3 -z1c
          0  0  0   1
     */
-    return res;
+    return basisInverse*translateInverse;
 }
 
 
@@ -97,12 +102,11 @@ int main(int argc, char **argv)
     float aspect = width/(float)height;
     TGAImage scene(width, height, TGAImage::RGB);
     std::vector<float> zBuffer(width * height, std::numeric_limits<float>::lowest());
-    Vec3f camera_pos(0, 0, -3);
+    Vec3f camera_pos(0, 0, 1);
     //Mat<float,4,4> VP = viewport(width/4, width/4, width/2, height/2);
 
     Mat<float,4,4> projectionMatrix = perspectiveProjectionMatrix(0.5, -0.5, -aspect/2, aspect/2, 0.35, 1000);
-    //Mat<float,4,4> translationMatrix = Tool::translationMatrix(camera_pos);
-    Mat<float,4,4> modelMatrix =  lookat(camera_pos, camera_pos+Vec3f(0,0,1), Vec3f(0,1,0)); 
+    Mat<float,4,4> modelMatrix =  lookat(camera_pos, camera_pos+Vec3f(0,0,-1), Vec3f(0,1,0)); 
     Mat<float,4,4> z = projectionMatrix*modelMatrix;
     // draw the wireframe of the model
     for (int i = 0; i < model->nfaces(); i++)

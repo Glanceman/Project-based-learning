@@ -25,7 +25,7 @@ list(REMOVE_ITEM SOURCES ${LESSON_SOURCES})
 list(REMOVE_ITEM SOURCES "${CMAKE_SOURCE_DIR}/src/main.cpp")
 
 
-set(USE_MAIN FALSE) #<---########################################################################################
+set(USE_MAIN True) #<---########################################################################################
 if(NOT USE_MAIN)
     set(LESSON lesson5.cpp)
 

@@ -350,6 +350,32 @@ namespace Tool
         m[2][3] = v.z;
         return m;
     }
+
+    /// @brief lookat matrix
+    /// @param eye camera postion
+    /// @param center target center 
+    /// @param up
+    /// @return Mat<float,4,4>
+    inline Mat<float,4,4> lookat(Vec3f eye, Vec3f center, Vec3f up) {
+        Vec3f z = (eye-center).normalized();
+        Vec3f x = up.cross(z).normalized();
+        Vec3f y = z.cross(x).normalized();
+        Mat<float,4,4> basisInverse = Mat<float,4,4>::identity();
+        Mat<float,4,4> translateInverse   = Mat<float,4,4>::identity();
+        for (int i=0; i<3; i++) {
+            basisInverse[0][i] = x[i];
+            basisInverse[1][i] = y[i];
+            basisInverse[2][i] = z[i];
+            translateInverse[i][3] = -eye[i];
+        }
+        /*
+        res= x1 x2 x3 -x1c
+            y1 y2 y3 -y1c
+            z1 z2 z3 -z1c
+            0  0  0   1
+        */
+        return basisInverse*translateInverse;
+    }
     
 
 } // namespace Tool

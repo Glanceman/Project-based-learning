@@ -119,34 +119,41 @@ $z_\text{ndc}$:
 
 ```math
 \begin{split}
-z_{ndc} &= \frac{Az+B}{-z}\\
-\end{split}
-```
-```math
+z_{ndc} &= \frac{Az+B}{-z} 
 \begin{cases}
 -1 &= \frac{A(-near)+B}{near} \text{ z = -near}\\
 1 &= \frac{A(-far)+B}{far} \text{ z = -far}
 \end{cases} 
+\end{split}
 ```
 ```math
+\begin{align}
+-\text{near} = A(-\text{near})+B\\
+\text{far} = A(-\text{far})+B
+\end{align}
+```
+
+```math
 \begin{split}
-\text{far} - \text{near} &= A(-\text{near})+B - A(-\text{far})-B \\
-\text{far} - \text{near} &= A(-\text{near} + \text{far}) \\
-A &= -  \frac{\text{near}+\text{far}} {\text{near}-\text{far}}
+
+\text{far} + \text{near} &= A(-\text{far})+ B - A(-\text{near})- B \\
+\text{far} + \text{near} &= A(-\text{far} + \text{near}) \\
+A &= - \frac{\text{far}+\text{near}} {\text{far}-\text{near}}
 \end{split}
 ```
 ```math
 \begin{split}
--\text{far} &= -\frac{\text{near}+\text{far}} {\text{near}-\text{far}}(-far)+B\\
-\text{far}(-1-\frac{\text{near}+\text{far}} {\text{near}-\text{far}}) &=B\\
-\text{far}({\frac{-\text{near}+\text{far}} {\text{near}-\text{far}}}-\frac{\text{near}+\text{far}} {\text{near}-\text{far}}) &= B\\
-B &= \text{far}(-\frac{\text{2near}} {\text{near}-\text{far}})\\
-B &= -\frac{2\text{near} \times \text{far}} {\text{near}-\text{far}}
+\text{far} &= -\frac{\text{far}+\text{near}} {\text{far}-\text{near}}(-\text{far})+B\\
+\text{far} &= \frac{\text{far}+\text{near}} {\text{far}-\text{near}}(\text{far})+B\\
+\text{far}(1-\frac{\text{far}+\text{near}} {\text{far}-\text{near}}) &=B\\
+\text{far}(\frac{\text{far}-\text{near}} {\text{far}-\text{near}}-\frac{\text{far}+\text{near}} {\text{far}-\text{near}}) &= B\\
+B &= \text{far}(-\frac{2\text{near}} {\text{far}-\text{near}})\\
+B &= -\frac{2\text{far} \times \text{near}} {\text{far}-\text{near}}
 \end{split}
 ```
 ```math
 \begin{split}
-z_{ndc} &= \frac{\frac{\text{near}+\text{far}} {\text{near}-\text{far}}z-(\frac{\text{2near}\times\text{far}} {\text{near}-\text{far}})}{-z}\\
+z_{ndc} &= \frac{-\frac{\text{far}+\text{near}} {\text{far}-\text{near}}z-\frac{2\text{far} \times \text{near}} {\text{far}-\text{near}}}{-z}\\
 \end{split}
 ```
 
@@ -154,7 +161,7 @@ z_{ndc} &= \frac{\frac{\text{near}+\text{far}} {\text{near}-\text{far}}z-(\frac{
 \begin{pmatrix}
 {\frac{2\times \text{near}}{ \text{right}-\text{left}}} & 0   &\frac{\text{right}+\text{left}}{\text{right}-\text{left}}  & 0\\
 0   & \frac{2\times \text{near}}{ \text{top}-\text{bot}} & \frac{\text{top}+\text{bot}}{\text{top}-\text{bot}}   & 0\\
-0   & 0   & -\frac{\text{near}+\text{far}} {\text{near}-\text{far}} & -(\frac{\text{2near}\times\text{far}} {\text{near}-\text{far}})\\
+0   & 0   & -\frac{\text{far}+\text{near}} {\text{far}-\text{near}} & -\frac{2\text{far} \times \text{near}} {\text{far}-\text{near}}\\
 0   & 0   & -1   & 0
 \end{pmatrix}
 \begin{pmatrix}

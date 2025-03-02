@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <iostream>
 #include "geometry.h"
 #include "tgaimage.h"
@@ -13,6 +14,7 @@ const TGAColor red   = TGAColor(255, 0, 0, 255);
 Vec3f light_dir(0, 0, -1); // define light_dir
 Vec3f view_dir(0, 0, -1);  // define View_dir
 
+Vec3f camera_pos(0, 0, 0);
 
 
 
@@ -39,10 +41,10 @@ int main(int argc, char **argv)
     TGAImage diffuse_map;
     diffuse_map.read_tga_file("../asset/african_head_diffuse.tga");
 
-
-    Vec3f camera_pos(0, 0, -2);
-    Mat<float,4,4> projectionMatrix = Tool::perspectiveProjectionMatrix(0.5, -0.5, -aspect/2, aspect/2, 0.35, 1000);
-    Mat<float,4,4> translationMatrix = Tool::translationMatrix(camera_pos);
+    Mat<float,4,4> projectionMatrix = Tool::perspectiveProjectionMatrix(0.5, -0.5, -aspect/2, aspect/2, 1, 1000);
+    Mat<float,4,4> modelMatrix =  Tool::lookat(camera_pos, camera_pos+view_dir, Vec3f(0,1,0)); 
+    Mat<float,4,4> translationMatrix = Tool::translationMatrix(Vec3f(0,0,-6));
+    Mat<float,4,4> z = projectionMatrix*translationMatrix;
     // draw the wireframe of the model
     for (int i = 0; i < model.nfaces(); i++)
     {
@@ -58,23 +60,24 @@ int main(int argc, char **argv)
             Vec3f v            = model.vert(vertex_indexes[j]);
             // vec3 to vec4
             Vec<float,4> v4 = {v.x, v.y, v.z, 1};
-            Vec4f projVec= projectionMatrix*translationMatrix*v4;
-            Vec3f projNDCVec3 = {projVec[0]/(projVec[3]+0.0001f), projVec[1]/(projVec[3]+0.0001f), projVec[2]/(projVec[3]+0.0001f)};
-            
+            Vec4f projVec= z*v4;
+            Vec3f projNDCVec3 = {projVec[0]/(projVec[3]+0.0001f), projVec[1]/(projVec[3]+0.0001f), -1*projVec[2]/(projVec[3]+0.0001f)};
+            auto res = std::signbit(projVec[2])==std::signbit(projNDCVec3[2])?"true":"false";
+            std::cout<<i <<";"<<v4[2] <<";"<<projVec[2]<<";" << projNDCVec3[2]<<";" << res << std::endl;
             screen_vertices[j] = Tool::WorldToScreen(projNDCVec3, image1);
-            vertices[j]        = v;
+            vertices[j]        = {projNDCVec3.x, projNDCVec3.y, projNDCVec3.z};
 
             uvs[j] = model.uv(uv_indexes[j]);
         }
+        
         Vec3f normal     = (vertices[2] - vertices[0]).cross(vertices[1] - vertices[0]);
         Vec3f normal_dir = normal.normalized();
 
-        float intensity = light_dir.dot(normal_dir);
-        intensity       = std::max(intensity, 0.f);
+        float intensity = std::max(0.f,light_dir.dot(normal_dir));
 
         // back face culling
         float back_face_indicator = view_dir.dot(normal_dir);
-        if (back_face_indicator >= 0)
+        if (back_face_indicator>=0)
         {
             const TGAColor color = TGAColor(255 * intensity, 255 * intensity, 255 * intensity, 255);
             Tool::triangle_v4(screen_vertices, uvs, image1, diffuse_map, zBuffer.data(), color, intensity, false);

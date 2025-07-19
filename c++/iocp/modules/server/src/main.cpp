@@ -9,11 +9,13 @@
 #pragma comment(lib, "ws2_32.lib")
 #endif
 #include <WS2tcpip.h>
+#include <vector>
+#include <thread>
 
 volatile bool running       = true;
-SOCKET        serverSocket  = INVALID_SOCKET; // Now a global variable
-constexpr int nPort         = 8080;           // Example port number
-constexpr int MAX_BUFF_SIZE = 1024;           // Example buffer size
+SOCKET        serverSocket  = INVALID_SOCKET;
+constexpr int nPort         = 60000;
+constexpr int MAX_BUFF_SIZE = 1024;
 
 enum class IOType
 {
@@ -24,11 +26,20 @@ enum class IOType
 typedef struct PER_IO_OPERATION_DATA
 {
     WSAOVERLAPPED Overlapped;
-    WSABUF        wsaBuf{MAX_BUFF_SIZE, buffer};
+    WSABUF        wsaBuf;
     CHAR          buffer[MAX_BUFF_SIZE];
-    IOType        type{};
-    SOCKET        socket = INVALID_SOCKET;
-    DWORD         nBytes = 0;
+    IOType        type;
+    SOCKET        socket;
+    DWORD         nBytes;
+
+    PER_IO_OPERATION_DATA() :
+        type(IOType::Read), socket(INVALID_SOCKET), nBytes(0)
+    {
+        ZeroMemory(&Overlapped, sizeof(WSAOVERLAPPED));
+        ZeroMemory(buffer, MAX_BUFF_SIZE);
+        wsaBuf.buf = buffer;
+        wsaBuf.len = MAX_BUFF_SIZE;
+    }
 } PER_IO_OPERATION_DATA, *LPPER_IO_OPERATION_DATA;
 
 void SignalHandler(int signum)
@@ -45,51 +56,133 @@ void SignalHandler(int signum)
 
 void ProcessIO(TinyLogger& logger, LPVOID lpParam)
 {
-    // This function would handle IOCP events, such as processing completed IO operations.
     HANDLE                  hCompletionPort = (HANDLE)lpParam;
     DWORD                   bytesTransferred;
-    void*                   lpCompletionKey = nullptr;
-    LPPER_IO_OPERATION_DATA perIoData;
+    ULONG_PTR               lpCompletionKey = 0;
+    LPPER_IO_OPERATION_DATA perIoData       = nullptr;
 
     while (running)
     {
         // Wait for an IO completion event
-        BOOL result = GetQueuedCompletionStatus(hCompletionPort, &bytesTransferred, (PULONG_PTR)&lpCompletionKey, (LPOVERLAPPED*)&perIoData, INFINITE);
-        if (result == 0)
+        BOOL result = GetQueuedCompletionStatus(
+            hCompletionPort,
+            &bytesTransferred,
+            &lpCompletionKey,
+            (LPOVERLAPPED*)&perIoData,
+            1000 // 1 second timeout instead of INFINITE
+        );
+
+        if (!result)
         {
             DWORD error = GetLastError();
-            if (error == WAIT_TIMEOUT || error == ERROR_NETNAME_DELETED)
+            if (error == WAIT_TIMEOUT)
             {
-                closesocket(perIoData->socket);
-                delete perIoData;
+                continue; // Check running flag and continue
+            }
+            else if (error == ERROR_NETNAME_DELETED || error == ERROR_CONNECTION_ABORTED)
+            {
+                if (perIoData != nullptr)
+                {
+                    logger.log(TinyLogger::LogLevel::INFO, "Client {} disconnected (network error)", perIoData->socket);
+                    closesocket(perIoData->socket);
+                    delete perIoData;
+                }
                 continue;
             }
             else
             {
                 logger.log(TinyLogger::LogLevel::ERR, "GetQueuedCompletionStatus failed: {}", error);
+                if (perIoData != nullptr)
+                {
+                    closesocket(perIoData->socket);
+                    delete perIoData;
+                }
                 continue;
             }
         }
 
-        // client disconnected
+        // Check if we got a valid operation
+        if (perIoData == nullptr)
+        {
+            continue;
+        }
+
+        // Client disconnected gracefully (bytesTransferred == 0)
         if (bytesTransferred == 0)
         {
-            logger.log(TinyLogger::LogLevel::INFO, "Client disconnected, closing socket.");
+            logger.log(TinyLogger::LogLevel::INFO, "Client {} disconnected gracefully", perIoData->socket);
             closesocket(perIoData->socket);
             delete perIoData;
             continue;
         }
 
-        // 取得数据并处理
-        logger.log(TinyLogger::LogLevel::INFO, "{} send message : {}", perIoData->socket, perIoData->buffer);
+        // Null-terminate the received data to ensure it's a valid string
+        if (bytesTransferred < MAX_BUFF_SIZE)
+        {
+            perIoData->buffer[bytesTransferred] = '\0';
+        }
+        else
+        {
+            perIoData->buffer[MAX_BUFF_SIZE - 1] = '\0';
+        }
 
-        // 继续向 socket 投递WSARecv操作
-        DWORD Flags  = 0;
-        DWORD dwRecv = 0;
-        ZeroMemory(perIoData, sizeof(PER_IO_OPERATION_DATA));
-        perIoData->wsaBuf.buf = perIoData->buffer;
-        perIoData->wsaBuf.len = bytesTransferred;
-        WSARecv(perIoData->socket, &perIoData->wsaBuf, 1, &dwRecv, &Flags, &perIoData->Overlapped, NULL);
+        // Log the received message
+        logger.log(TinyLogger::LogLevel::INFO, "[{}] Client {} sent message: '{}'", GetCurrentThreadId(), perIoData->socket, perIoData->buffer);
+
+        // Echo the message back to the client
+        LPPER_IO_OPERATION_DATA sendData = new PER_IO_OPERATION_DATA();
+        sendData->socket                 = perIoData->socket;
+        sendData->type                   = IOType::Write;
+        strcpy_s(sendData->buffer, MAX_BUFF_SIZE, perIoData->buffer);
+        sendData->wsaBuf.len = bytesTransferred;
+
+        // DWORD bytesSent  = 0;
+        // int   sendResult = WSASend(
+        //     sendData->socket,
+        //     &sendData->wsaBuf,
+        //     1,
+        //     &bytesSent,
+        //     0,
+        //     &sendData->Overlapped,
+        //     NULL);
+
+        // if (sendResult == SOCKET_ERROR)
+        // {
+        //     if (WSAGetLastError() != WSA_IO_PENDING)
+        //     {
+        //         logger.log(TinyLogger::LogLevel::ERR, "WSASend failed: {}", WSAGetLastError());
+        //         delete sendData;
+        //     }
+        // }
+
+        // Continue to receive more data from this client
+        LPPER_IO_OPERATION_DATA newRecvData = new PER_IO_OPERATION_DATA();
+        newRecvData->socket                 = perIoData->socket;
+        newRecvData->type                   = IOType::Read;
+
+        DWORD dwRecv     = 0;
+        DWORD flags      = 0;
+        int   recvResult = WSARecv(
+            newRecvData->socket,
+            &newRecvData->wsaBuf,
+            1,
+            &dwRecv,
+            &flags,
+            &newRecvData->Overlapped,
+            NULL);
+
+        if (recvResult == SOCKET_ERROR)
+        {
+            if (WSAGetLastError() != WSA_IO_PENDING)
+            {
+                logger.log(TinyLogger::LogLevel::ERR, "WSARecv failed: {}", WSAGetLastError());
+                closesocket(newRecvData->socket);
+                delete newRecvData;
+            }
+        }
+
+        // Clean up the current operation data
+        delete perIoData;
     }
 }
 
@@ -99,41 +192,52 @@ bool Setup(HANDLE& iocpHandle, TinyLogger& logger)
     if (WSAStartup(MAKEWORD(2, 2), &data) != 0)
     {
         logger.log(TinyLogger::LogLevel::ERR, "WSAStartup failed");
+        return false;
+    }
+
+    // Create socket with overlapped flag
+    serverSocket = WSASocket(AF_INET, SOCK_STREAM, IPPROTO_TCP, NULL, 0, WSA_FLAG_OVERLAPPED);
+    if (serverSocket == INVALID_SOCKET)
+    {
+        logger.log(TinyLogger::LogLevel::ERR, "WSASocket failed: {}", WSAGetLastError());
         WSACleanup();
         return false;
     }
 
-    // create socket
-    serverSocket = WSASocket(AF_INET, SOCK_STREAM, 0, NULL, 0, WSA_FLAG_OVERLAPPED);
+    // Enable SO_REUSEADDR
+    BOOL reuseAddr = TRUE;
+    setsockopt(serverSocket, SOL_SOCKET, SO_REUSEADDR, (char*)&reuseAddr, sizeof(reuseAddr));
 
-    // bind port
+    // Bind port
     struct sockaddr_in servAddr;
     servAddr.sin_family      = AF_INET;
     servAddr.sin_port        = htons(nPort);
     servAddr.sin_addr.s_addr = htonl(INADDR_ANY);
 
-    if (bind(serverSocket, (struct sockaddr*)&servAddr, sizeof(servAddr)) < 0)
+    if (bind(serverSocket, (struct sockaddr*)&servAddr, sizeof(servAddr)) == SOCKET_ERROR)
     {
-        logger.log(TinyLogger::LogLevel::ERR, "bind Failed!");
+        logger.log(TinyLogger::LogLevel::ERR, "bind failed: {}", WSAGetLastError());
         closesocket(serverSocket);
         WSACleanup();
         return false;
     }
 
-    // set listen queue to 200
-    // backlog limit is about pending connections(handshake)
-    if (listen(serverSocket, 200) != 0)
+    // Set listen queue to 200
+    if (listen(serverSocket, 200) == SOCKET_ERROR)
     {
-        logger.log(TinyLogger::LogLevel::ERR, "listen Failed!");
+        logger.log(TinyLogger::LogLevel::ERR, "listen failed: {}", WSAGetLastError());
         closesocket(serverSocket);
         WSACleanup();
         return false;
     }
 
-    iocpHandle = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 0);
+    // Create IOCP with number of concurrent threads = number of processors
+    SYSTEM_INFO sysInfo;
+    GetSystemInfo(&sysInfo);
+    iocpHandle = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, sysInfo.dwNumberOfProcessors);
     if (iocpHandle == NULL)
     {
-        logger.log(TinyLogger::LogLevel::ERR, "CreateIoCompletionPort failed {}", GetLastError());
+        logger.log(TinyLogger::LogLevel::ERR, "CreateIoCompletionPort failed: {}", GetLastError());
         closesocket(serverSocket);
         WSACleanup();
         return false;
@@ -146,72 +250,110 @@ int main()
 {
     signal(SIGINT, SignalHandler);
     signal(SIGTERM, SignalHandler);
-    // Test Hazard Pointer Guard
+
     TinyLogger logger("server-log");
-    logger.log(TinyLogger::LogLevel::INFO, "Start to setup");
+    logger.log(TinyLogger::LogLevel::INFO, "Starting server setup...");
+
     HANDLE iocpHandle;
     if (!Setup(iocpHandle, logger))
     {
         logger.log(TinyLogger::LogLevel::ERR, "Setup failed");
         return 1;
     }
-    // create threads to process IOCP events
+
+    // Create worker threads for IOCP
+    SYSTEM_INFO sysInfo;
+    GetSystemInfo(&sysInfo);
+    //int numThreads = sysInfo.dwNumberOfProcessors * 2; // Common practice: 2x CPU cores
+    int numThreads = 4;
     std::vector<std::jthread> processThreadGroup;
-    for (int i = 0; i < 4; ++i) // Example: create 4 threads for processing IOCP events
+    for (int i = 0; i < numThreads; ++i)
     {
-        auto t = std::jthread(ProcessIO, std::ref(logger), iocpHandle);
-        processThreadGroup.emplace_back(std::move(t));
+        processThreadGroup.emplace_back(ProcessIO, std::ref(logger), iocpHandle);
     }
 
-    logger.log(TinyLogger::LogLevel::INFO, "Setup complete. Server is running...");
+    logger.log(TinyLogger::LogLevel::INFO, "Server is running on port {} with {} worker threads...", nPort, numThreads);
 
     while (running)
     {
-        // accept connections or handle IOCP events here
         sockaddr_in clientAddr;
         int         addrLen      = sizeof(clientAddr);
         SOCKET      clientSocket = accept(serverSocket, (sockaddr*)&clientAddr, &addrLen);
 
         if (clientSocket == INVALID_SOCKET)
         {
-            logger.log(TinyLogger::LogLevel::ERR, "accept failed: {}", WSAGetLastError());
+            if (running) // Only log if we're still running (avoid spam during shutdown)
+            {
+                DWORD error = WSAGetLastError();
+                if (error != WSAEINTR && error != WSAENOTSOCK)
+                {
+                    logger.log(TinyLogger::LogLevel::ERR, "accept failed: {}", error);
+                }
+            }
             continue;
         }
 
-        // associate the client socket with the IOCP
-        HANDLE clientHandle = CreateIoCompletionPort((HANDLE)clientSocket, iocpHandle, 0, 0);
+        // Associate the client socket with the IOCP
+        HANDLE clientHandle = CreateIoCompletionPort((HANDLE)clientSocket, iocpHandle, clientSocket, 0);
         if (clientHandle == NULL)
         {
-            logger.log(TinyLogger::LogLevel::ERR, "CreateIoCompletionPort failed: {}", GetLastError());
+            logger.log(TinyLogger::LogLevel::ERR, "CreateIoCompletionPort for client failed: {}", GetLastError());
             closesocket(clientSocket);
             continue;
         }
 
-        // Initialize the PER_IO_OPERATION_DATA structure
+        // Initialize the PER_IO_OPERATION_DATA structure for receiving
         LPPER_IO_OPERATION_DATA perIoData = new PER_IO_OPERATION_DATA();
-        memset(&(perIoData->Overlapped), 0, sizeof(WSAOVERLAPPED));
-        perIoData->wsaBuf.len = MAX_BUFF_SIZE;
-        perIoData->wsaBuf.buf = perIoData->buffer;
+        perIoData->socket                 = clientSocket;
+        perIoData->type                   = IOType::Read;
 
         DWORD bytesRecv = 0;
         DWORD flags     = 0;
-        // Post a receive operation
-        if (WSARecv(clientSocket, &(perIoData->wsaBuf), 1, &bytesRecv, &flags, &(perIoData->Overlapped), NULL) == SOCKET_ERROR)
+
+        // Post initial receive operation
+        int result = WSARecv(
+            clientSocket,
+            &perIoData->wsaBuf,
+            1,
+            &bytesRecv,
+            &flags,
+            &perIoData->Overlapped,
+            NULL);
+
+        if (result == SOCKET_ERROR)
         {
             if (WSAGetLastError() != WSA_IO_PENDING)
             {
-                logger.log(TinyLogger::LogLevel::ERR, "WSARecv failed: {}", WSAGetLastError());
+                logger.log(TinyLogger::LogLevel::ERR, "Initial WSARecv failed: {}", WSAGetLastError());
                 delete perIoData;
                 closesocket(clientSocket);
                 continue;
             }
         }
-        logger.log(TinyLogger::LogLevel::INFO, "Accepted a new connection from {}:{}", inet_ntoa(clientAddr.sin_addr), ntohs(clientAddr.sin_port));
+
+        char clientIP[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &clientAddr.sin_addr, clientIP, INET_ADDRSTRLEN);
+        logger.log(TinyLogger::LogLevel::INFO, "Accepted new connection from {}:{}", clientIP, ntohs(clientAddr.sin_port));
     }
 
     logger.log(TinyLogger::LogLevel::INFO, "Server is shutting down...");
+
+    // Wait for worker threads to finish
+    for (auto& thread : processThreadGroup)
+    {
+        if (thread.joinable())
+        {
+            thread.join();
+        }
+    }
+
     CloseHandle(iocpHandle);
-    closesocket(serverSocket);
+    if (serverSocket != INVALID_SOCKET)
+    {
+        closesocket(serverSocket);
+    }
     WSACleanup();
+
+    logger.log(TinyLogger::LogLevel::INFO, "Server shutdown complete.");
     return 0;
 }

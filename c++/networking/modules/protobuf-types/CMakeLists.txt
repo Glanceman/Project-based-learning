@@ -3,14 +3,20 @@ cmake_minimum_required(VERSION 3.13.0)
 project(protoMessage VERSION 0.1.0 LANGUAGES C CXX)
 
 #https://blog.csdn.net/qq_43190806/article/details/130210412
-set(absl_DIR ${CMAKE_SOURCE_DIR}/libs/protobuf-27.3-g++/lib/cmake/absl)
-set(utf8_range_DIR ${CMAKE_SOURCE_DIR}/libs/protobuf-27.3-g++/lib/cmake/utf8_range)
-set(Protobuf_DIR ${CMAKE_SOURCE_DIR}/libs/protobuf-27.3-g++/lib/cmake/protobuf)
+set(absl_DIR ${CMAKE_SOURCE_DIR}/libs/protobuf-v31.1-g++/lib/cmake/absl)
+set(utf8_range_DIR ${CMAKE_SOURCE_DIR}/libs/protobuf-v31.1-g++/lib/cmake/utf8_range)
+set(Protobuf_DIR ${CMAKE_SOURCE_DIR}/libs/protobuf-v31.1-g++/lib/cmake/protobuf)
 
 find_package(Protobuf REQUIRED CONFIG)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
+if(CMAKE_COMPILER_IS_GNUCXX)
+    set(CMAKE_CXX_COMPILER g++)
+    set(CMAKE_CXX_FLAGS "-std=c++2a -Wall -Wextra -Werror -Wpedantic")
+elseif(MSVC)
+    add_compile_options(/W4)
+endif()
 
 # file(GLOB_RECURSE SOURCES
 #     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.h"
@@ -19,7 +25,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 
 # set the compiler
-set(PROTO_COMPILER ${CMAKE_SOURCE_DIR}/libs/protobuf-27.3-g++/bin/protoc.exe)
+set(PROTO_COMPILER ${CMAKE_SOURCE_DIR}/libs/protobuf-v31.1-g++/bin/protoc.exe)
 message(STATUS "PROTOBUF compiler ${PROTO_COMPILER}")
 
 # Gather .proto files
@@ -53,7 +59,7 @@ add_library(protoMessage STATIC ${GENERATED_SOURCES})
 target_include_directories(protoMessage PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/gen    
     ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${CMAKE_SOURCE_DIR}/libs/protobuf-27.3-g++/include
+    ${CMAKE_SOURCE_DIR}/libs/protobuf-v31.1-g++/include
 )
 
 #get_target_property(PROTOBUF_LIB_PATH protobuf::libprotobuf IMPORTED_LINK_INTERFACE_LANGUAGES_RELEASE)

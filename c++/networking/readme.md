@@ -1,7 +1,7 @@
 ## Dependencies
 
 1. [asio](https://think-async.com/Asio/)
-2. [protobuf-27.3](https://github.com/protocolbuffers/protobuf)
+2. [protobuf-v31.1](https://github.com/protocolbuffers/protobuf) - [tuturial](https://mengbaoliang.cn/archives/92200/)
 3. [Imgui](https://github.com/ocornut/imgui)
 4. [glfw](https://www.glfw.org/download.html)
 
@@ -15,7 +15,7 @@ E:.
 │  ├─asio-1.30.2
 │  ├─imgui
 │  ├─glfw-3.3.8.bin.WIN64
-│  └─protobuf-27.3-g++
+│  └─protobuf-v31.1-g++
 └─modules
     ├─net-client
     ├─net-common

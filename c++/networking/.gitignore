@@ -3,3 +3,5 @@ libs
 build
 .vscode
 .cache
+/protobuf-types/gen
+

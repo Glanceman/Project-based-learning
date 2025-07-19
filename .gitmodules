@@ -1,0 +1,3 @@
+[submodule "c++/iocp/lib/tiny-logger"]
+	path = c++/iocp/lib/tiny-logger
+	url = https://github.com/Glanceman/tiny-logger

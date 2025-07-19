@@ -1,0 +1,2 @@
+CompileFlags:
+  Add: ["-D__cpp_concepts=202002L","-target", "x86_64-w64-mingw32"]

@@ -1,0 +1,10 @@
+*.exe
+*.log
+*.tmp
+*.bak
+*.dll
+/build/
+/dist/
+/out/
+.vs
+.cache

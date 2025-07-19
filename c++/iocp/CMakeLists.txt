@@ -1,0 +1,19 @@
+cmake_minimum_required(VERSION 3.20)
+
+# Define the project name and where to report bugs.
+
+project(iocp LANGUAGES C CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED true)
+
+
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/dist)
+
+
+add_subdirectory(modules/server)
+
+
+# include(GNUInstallDirs)
+# message("GNU_INSTALL_BINDIR:  ${CMAKE_INSTALL_BINDIR}")
+# install(TARGETS iocp RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})

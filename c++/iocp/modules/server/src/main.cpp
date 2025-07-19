@@ -11,6 +11,9 @@
 #include <WS2tcpip.h>
 #include <vector>
 #include <thread>
+#include <unordered_map>
+#include <mutex>
+#include <string>
 
 volatile bool running       = true;
 SOCKET        serverSocket  = INVALID_SOCKET;
@@ -22,6 +25,25 @@ enum class IOType
     Read,
     Write
 };
+
+// Per-client state to handle partial messages
+struct ClientState
+{
+    std::string messageBuffer; // Accumulates partial messages
+    std::mutex  bufferMutex;   // Protects the buffer from concurrent access
+
+    ClientState() = default;
+
+    // Non-copyable but movable
+    ClientState(const ClientState&)            = delete;
+    ClientState& operator=(const ClientState&) = delete;
+    ClientState(ClientState&&)                 = delete;
+    ClientState& operator=(ClientState&&)      = delete;
+};
+
+// Global map to store client states (protected by mutex)
+std::unordered_map<SOCKET, std::unique_ptr<ClientState>> clientStates;
+std::mutex                                               clientStatesMutex;
 
 typedef struct PER_IO_OPERATION_DATA
 {
@@ -41,6 +63,48 @@ typedef struct PER_IO_OPERATION_DATA
         wsaBuf.len = MAX_BUFF_SIZE;
     }
 } PER_IO_OPERATION_DATA, *LPPER_IO_OPERATION_DATA;
+
+// Helper function to add client state
+void AddClientState(SOCKET clientSocket)
+{
+    std::lock_guard<std::mutex> lock(clientStatesMutex);
+    clientStates[clientSocket] = std::make_unique<ClientState>();
+}
+
+// Helper function to remove client state
+void RemoveClientState(SOCKET clientSocket)
+{
+    std::lock_guard<std::mutex> lock(clientStatesMutex);
+    clientStates.erase(clientSocket);
+}
+
+// Helper function to get client state
+ClientState* GetClientState(SOCKET clientSocket)
+{
+    std::lock_guard<std::mutex> lock(clientStatesMutex);
+    auto                        it = clientStates.find(clientSocket);
+    return (it != clientStates.end()) ? it->second.get() : nullptr;
+}
+
+// Process complete messages (customize this based on your protocol)
+std::vector<std::string> ExtractCompleteMessages(std::string& buffer)
+{
+    std::vector<std::string> messages;
+
+    // Example: assuming messages are delimited by newline characters
+    // Modify this based on your actual message protocol
+    size_t pos = 0;
+    while ((pos = buffer.find('\n')) != std::string::npos)
+    {
+        if (pos > 0) // Don't add empty messages
+        {
+            messages.push_back(buffer.substr(0, pos));
+        }
+        buffer.erase(0, pos + 1);
+    }
+
+    return messages;
+}
 
 void SignalHandler(int signum)
 {
@@ -84,6 +148,7 @@ void ProcessIO(TinyLogger& logger, LPVOID lpParam)
                 if (perIoData != nullptr)
                 {
                     logger.log(TinyLogger::LogLevel::INFO, "Client {} disconnected (network error)", perIoData->socket);
+                    RemoveClientState(perIoData->socket);
                     closesocket(perIoData->socket);
                     delete perIoData;
                 }
@@ -94,6 +159,7 @@ void ProcessIO(TinyLogger& logger, LPVOID lpParam)
                 logger.log(TinyLogger::LogLevel::ERR, "GetQueuedCompletionStatus failed: {}", error);
                 if (perIoData != nullptr)
                 {
+                    RemoveClientState(perIoData->socket);
                     closesocket(perIoData->socket);
                     delete perIoData;
                 }
@@ -111,58 +177,77 @@ void ProcessIO(TinyLogger& logger, LPVOID lpParam)
         if (bytesTransferred == 0)
         {
             logger.log(TinyLogger::LogLevel::INFO, "Client {} disconnected gracefully", perIoData->socket);
+            RemoveClientState(perIoData->socket);
             closesocket(perIoData->socket);
             delete perIoData;
             continue;
         }
 
-        // Null-terminate the received data to ensure it's a valid string
-        if (bytesTransferred < MAX_BUFF_SIZE)
+        // Get client state
+        ClientState* clientState = GetClientState(perIoData->socket);
+        if (clientState == nullptr)
         {
-            perIoData->buffer[bytesTransferred] = '\0';
+            logger.log(TinyLogger::LogLevel::ERR, "Client state not found for socket {}", perIoData->socket);
+            closesocket(perIoData->socket);
+            delete perIoData;
+            continue;
         }
-        else
+
+        // Process the received data
         {
-            perIoData->buffer[MAX_BUFF_SIZE - 1] = '\0';
+            std::lock_guard<std::mutex> lock(clientState->bufferMutex);
+
+            // Append new data to the client's buffer
+            clientState->messageBuffer.append(perIoData->buffer, bytesTransferred);
+
+            // Extract complete messages
+            std::vector<std::string> completeMessages = ExtractCompleteMessages(clientState->messageBuffer);
+
+            // Process each complete message
+            for (const auto& message : completeMessages)
+            {
+                logger.log(TinyLogger::LogLevel::INFO, "[{}] Client {} sent complete message: '{}'", GetCurrentThreadId(), perIoData->socket, message);
+
+            //     // Echo the message back to the client
+            //     LPPER_IO_OPERATION_DATA sendData = new PER_IO_OPERATION_DATA();
+            //     sendData->socket                 = perIoData->socket;
+            //     sendData->type                   = IOType::Write;
+
+            //     // Add newline back for the echo
+            //     std::string echoMessage = message + "\n";
+            //     strcpy_s(sendData->buffer, MAX_BUFF_SIZE, echoMessage.c_str());
+            //     sendData->wsaBuf.len = static_cast<ULONG>(echoMessage.length());
+
+            //     DWORD bytesSent  = 0;
+            //     int   sendResult = WSASend(
+            //         sendData->socket,
+            //         &sendData->wsaBuf,
+            //         1,
+            //         &bytesSent,
+            //         0,
+            //         &sendData->Overlapped,
+            //         NULL);
+
+            //     if (sendResult == SOCKET_ERROR)
+            //     {
+            //         if (WSAGetLastError() != WSA_IO_PENDING)
+            //         {
+            //             logger.log(TinyLogger::LogLevel::ERR, "WSASend failed: {}", WSAGetLastError());
+            //             delete sendData;
+            //         }
+            //     }
+            }
         }
-
-        // Log the received message
-        logger.log(TinyLogger::LogLevel::INFO, "[{}] Client {} sent message: '{}'", GetCurrentThreadId(), perIoData->socket, perIoData->buffer);
-
-        // Echo the message back to the client
-        LPPER_IO_OPERATION_DATA sendData = new PER_IO_OPERATION_DATA();
-        sendData->socket                 = perIoData->socket;
-        sendData->type                   = IOType::Write;
-        strcpy_s(sendData->buffer, MAX_BUFF_SIZE, perIoData->buffer);
-        sendData->wsaBuf.len = bytesTransferred;
-
-        // DWORD bytesSent  = 0;
-        // int   sendResult = WSASend(
-        //     sendData->socket,
-        //     &sendData->wsaBuf,
-        //     1,
-        //     &bytesSent,
-        //     0,
-        //     &sendData->Overlapped,
-        //     NULL);
-
-        // if (sendResult == SOCKET_ERROR)
-        // {
-        //     if (WSAGetLastError() != WSA_IO_PENDING)
-        //     {
-        //         logger.log(TinyLogger::LogLevel::ERR, "WSASend failed: {}", WSAGetLastError());
-        //         delete sendData;
-        //     }
-        // }
 
         // Continue to receive more data from this client
         LPPER_IO_OPERATION_DATA newRecvData = new PER_IO_OPERATION_DATA();
         newRecvData->socket                 = perIoData->socket;
         newRecvData->type                   = IOType::Read;
 
-        DWORD dwRecv     = 0;
-        DWORD flags      = 0;
-        int   recvResult = WSARecv(
+        DWORD dwRecv = 0;
+        DWORD flags  = 0;
+
+        int recvResult = WSARecv(
             newRecvData->socket,
             &newRecvData->wsaBuf,
             1,
@@ -176,6 +261,7 @@ void ProcessIO(TinyLogger& logger, LPVOID lpParam)
             if (WSAGetLastError() != WSA_IO_PENDING)
             {
                 logger.log(TinyLogger::LogLevel::ERR, "WSARecv failed: {}", WSAGetLastError());
+                RemoveClientState(newRecvData->socket);
                 closesocket(newRecvData->socket);
                 delete newRecvData;
             }
@@ -264,8 +350,7 @@ int main()
     // Create worker threads for IOCP
     SYSTEM_INFO sysInfo;
     GetSystemInfo(&sysInfo);
-    //int numThreads = sysInfo.dwNumberOfProcessors * 2; // Common practice: 2x CPU cores
-    int numThreads = 4;
+    int                       numThreads = 4;
     std::vector<std::jthread> processThreadGroup;
     for (int i = 0; i < numThreads; ++i)
     {
@@ -293,11 +378,15 @@ int main()
             continue;
         }
 
+        // Add client state for message reassembly
+        AddClientState(clientSocket);
+
         // Associate the client socket with the IOCP
         HANDLE clientHandle = CreateIoCompletionPort((HANDLE)clientSocket, iocpHandle, clientSocket, 0);
         if (clientHandle == NULL)
         {
             logger.log(TinyLogger::LogLevel::ERR, "CreateIoCompletionPort for client failed: {}", GetLastError());
+            RemoveClientState(clientSocket);
             closesocket(clientSocket);
             continue;
         }
@@ -326,6 +415,7 @@ int main()
             {
                 logger.log(TinyLogger::LogLevel::ERR, "Initial WSARecv failed: {}", WSAGetLastError());
                 delete perIoData;
+                RemoveClientState(clientSocket);
                 closesocket(clientSocket);
                 continue;
             }
@@ -345,6 +435,12 @@ int main()
         {
             thread.join();
         }
+    }
+
+    // Clean up all client states
+    {
+        std::lock_guard<std::mutex> lock(clientStatesMutex);
+        clientStates.clear();
     }
 
     CloseHandle(iocpHandle);

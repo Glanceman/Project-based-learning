@@ -22,7 +22,9 @@ add_executable(iocp-server ${SOURCES})
 Include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/modules/server/src/
-    ${CMAKE_SOURCE_DIR}/modules/server/include/
+    ${CMAKE_SOURCE_DIR}/modules/server/src/common
+    ${CMAKE_SOURCE_DIR}/modules/server/src/iocp-server
+    ${CMAKE_SOURCE_DIR}/modules/server/src/client-manager
     ${CMAKE_SOURCE_DIR}/lib/tiny-logger/src/logger/
 )
 

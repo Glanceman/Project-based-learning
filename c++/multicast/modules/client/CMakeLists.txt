@@ -1,0 +1,29 @@
+cmake_minimum_required(VERSION 3.13.0)
+
+project(multicast-client LANGUAGES C CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED true)
+if(CMAKE_COMPILER_IS_GNUCXX)
+    set(CMAKE_CXX_COMPILER g++)
+    set(CMAKE_CXX_FLAGS "-std=c++2a -Wall -Wextra -Werror -Wpedantic")
+elseif(MSVC)
+    add_compile_options(/W4)
+endif()
+set(CMAKE_VERBOSE_MAKEFILE on)
+set(CMAKE_EXPORT_COMPILE_COMMANDS on)
+
+# recursively include all cpp files in the src directory
+file(GLOB_RECURSE SOURCES "src/*.cpp")
+message(STATUS "SOURCES: ${SOURCES}")
+
+add_executable(multicast-client ${SOURCES})
+
+Include_directories(
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+if(CMAKE_COMPILER_IS_GNUCXX)
+    target_link_libraries(multicast-client PUBLIC -lws2_32)
+endif()
+
